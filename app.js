@@ -7,24 +7,36 @@ let votes = {};
 let currentCategoryId = null;
 let currentNominationId = null;
 
-// ======================
-// ALMACENAMIENTO DE VOTOS
-// ======================
+// =====================================
+// BLOQUEO: 1 VOTO POR DISPOSITIVO
+// =====================================
 
-const STORAGE_KEY = "votaciones_local_v1";
+const LOCAL_LOCK_KEY = "user_vote_locks_v1"; // se guarda en localStorage
 
-function loadVotes() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    votes = raw ? JSON.parse(raw) : {};
-  } catch (e) {
-    votes = {};
-  }
+let userVoteLocks = JSON.parse(localStorage.getItem(LOCAL_LOCK_KEY) || "{}");
+
+function saveUserVoteLocks() {
+  localStorage.setItem(LOCAL_LOCK_KEY, JSON.stringify(userVoteLocks));
 }
 
-function saveVotes() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(votes));
+function getVoteKey(categoryId, nominationId, participantId) {
+  return `${categoryId}__${nominationId}__${participantId}`;
 }
+
+function hasUserVoted(categoryId, nominationId, participantId) {
+  const key = getVoteKey(categoryId, nominationId, participantId);
+  return !!userVoteLocks[key];
+}
+
+function markUserVoted(categoryId, nominationId, participantId) {
+  const key = getVoteKey(categoryId, nominationId, participantId);
+  userVoteLocks[key] = true;
+  saveUserVoteLocks();
+}
+
+// =====================================
+// AYUDA PARA LEER VOTOS
+// =====================================
 
 function getVotes(categoryId, nominationId, participantId) {
   if (
@@ -37,49 +49,33 @@ function getVotes(categoryId, nominationId, participantId) {
   return votes[categoryId][nominationId][participantId];
 }
 
-function setVotes(categoryId, nominationId, participantId, value) {
-  if (!votes[categoryId]) votes[categoryId] = {};
-  if (!votes[categoryId][nominationId]) votes[categoryId][nominationId] = {};
-  votes[categoryId][nominationId][participantId] = value;
-  saveVotes();
+// =====================================
+// SUSCRIPCIÓN A FIREBASE (TIEMPO REAL)
+// =====================================
+
+// votesRef viene desde index.html (window.votesRef)
+function subscribeToVotes() {
+  if (typeof votesRef === "undefined") {
+    console.error("votesRef no está definido. Revisa index.html");
+    return;
+  }
+
+  votesRef.on("value", (snapshot) => {
+    votes = snapshot.val() || {};
+
+    // Si hay categoría/nominación seleccionada, redibujar
+    if (currentCategoryId && currentNominationId) {
+      renderNomination(currentCategoryId, currentNominationId);
+    } else {
+      renderSummaryPanel();
+    }
+  });
 }
 
 // =====================================
-// CONTROL: 1 VOTO POR USUARIO/NAVEGADOR
+// RENDER CATEGORÍAS
 // =====================================
 
-const LOCAL_LOCK_KEY = "user_vote_locks_v1"; // nombre en localStorage
-
-// Cargamos qué votos ya hizo este navegador
-let userVoteLocks = JSON.parse(localStorage.getItem(LOCAL_LOCK_KEY) || "{}");
-
-function saveUserVoteLocks() {
-  localStorage.setItem(LOCAL_LOCK_KEY, JSON.stringify(userVoteLocks));
-}
-
-// Creamos una llave única por categoría + nominación + participante
-function getVoteKey(categoryId, nominationId, participantId) {
-  return `${categoryId}__${nominationId}__${participantId}`;
-}
-
-// ¿Este navegador ya votó por este participante en esta nominación?
-function hasUserVoted(categoryId, nominationId, participantId) {
-  const key = getVoteKey(categoryId, nominationId, participantId);
-  return !!userVoteLocks[key];
-}
-
-// Marcar que este navegador ya votó por ese participante
-function markUserVoted(categoryId, nominationId, participantId) {
-  const key = getVoteKey(categoryId, nominationId, participantId);
-  userVoteLocks[key] = true;
-  saveUserVoteLocks();
-}
-
-// =====================================
-// RENDER CATEGORÍAS Y NOMINACIONES
-// =====================================
-
-// Panel izquierdo: lista de categorías
 function renderCategoriesList() {
   const listEl = document.getElementById("category-list");
   listEl.innerHTML = "";
@@ -89,7 +85,7 @@ function renderCategoriesList() {
     btn.className = "category-btn";
     btn.dataset.id = cat.id;
 
-    // Mini foto: primer participante de la primera nominación
+    // mini foto
     let thumb = null;
     if (
       cat.nominations &&
@@ -129,7 +125,10 @@ function highlightActiveCategory() {
   });
 }
 
-// Rellenar el combo de nominaciones según la categoría
+// =====================================
+// NOMINACIONES
+// =====================================
+
 function populateNominationSelect(cat) {
   const select = document.getElementById("nomination-select");
   select.innerHTML = "";
@@ -147,7 +146,6 @@ function populateNominationSelect(cat) {
   };
 }
 
-// Render de la nominación seleccionada (tarjetas con foto, nombre y votos)
 function renderNomination(categoryId, nominationId) {
   const category = categories.find((c) => c.id === categoryId);
   if (!category) return;
@@ -203,69 +201,62 @@ function renderNomination(categoryId, nominationId) {
   });
 
   highlightActiveCategory();
-  renderSummaryPanel(); // actualizar panel de resumen
-}
-
-function selectCategory(categoryId) {
-  currentCategoryId = categoryId;
-  const cat = categories.find((c) => c.id === categoryId);
-  if (!cat) return;
-
-  populateNominationSelect(cat);
-  const select = document.getElementById("nomination-select");
-  currentNominationId =
-    select.value || (cat.nominations[0] && cat.nominations[0].id);
-
-  if (currentNominationId) {
-    renderNomination(categoryId, currentNominationId);
-  }
+  renderSummaryPanel();
 }
 
 // =====================================
-// LÓGICA DE VOTO
+// LÓGICA DE VOTO EN FIREBASE
 // =====================================
 
 function addVote(categoryId, nominationId, participantId) {
-  // 1) Revisar si este navegador ya votó a ese participante en esa nominación
   if (hasUserVoted(categoryId, nominationId, participantId)) {
     alert("Ya has votado por este participante en esta nominación.");
     return;
   }
 
-  // 2) Si NO ha votado, sumamos el voto
-  const actual = getVotes(categoryId, nominationId, participantId);
-  const nuevo = actual + 1;
-  setVotes(categoryId, nominationId, participantId, nuevo);
+  const ref = votesRef.child(`${categoryId}/${nominationId}/${participantId}`);
 
-  // 3) Marcamos que este usuario ya votó por este candidato en esta nominación
-  markUserVoted(categoryId, nominationId, participantId);
-
-  // 4) Volvemos a dibujar las tarjetas para actualizar el número de votos y el estado del botón
-  renderNomination(categoryId, nominationId);
+  ref.transaction(
+    (current) => {
+      return (current || 0) + 1;
+    },
+    (error, committed) => {
+      if (!error && committed) {
+        markUserVoted(categoryId, nominationId, participantId);
+        // No llamamos a renderNomination aquí, subscribeToVotes se encargará
+      } else if (error) {
+        console.error("Error al registrar voto:", error);
+      }
+    }
+  );
 }
 
-// Reiniciar todos los votos (botón rojo)
 function resetAllVotes() {
   if (!confirm("¿Seguro que deseas reiniciar TODOS los votos?")) return;
-  votes = {};
-  saveVotes();
-  userVoteLocks = {};
-  saveUserVoteLocks();
 
-  if (currentCategoryId && currentNominationId) {
-    renderNomination(currentCategoryId, currentNominationId);
-  } else {
-    renderSummaryPanel();
-  }
+  votesRef.set({}, (error) => {
+    if (error) {
+      console.error("Error al reiniciar votos:", error);
+      return;
+    }
+    votes = {};
+    userVoteLocks = {};
+    saveUserVoteLocks();
+
+    if (currentCategoryId && currentNominationId) {
+      renderNomination(currentCategoryId, currentNominationId);
+    } else {
+      renderSummaryPanel();
+    }
+  });
 }
 
 // =====================================
 // RESUMEN GENERAL (LÍDER POR NOMINACIÓN)
 // =====================================
 
-// Devuelve el líder de una nominación (participante + votos)
 function getLeaderForNomination(categoryId, nomination) {
-  let leader = null; // { participant, votes }
+  let leader = null;
 
   nomination.participants.forEach((pid) => {
     const p = participantsById[pid];
@@ -334,11 +325,29 @@ function renderSummaryPanel() {
 }
 
 // =====================================
-// INICIALIZACIÓN
+// SELECCIÓN DE CATEGORÍA
+// =====================================
+
+function selectCategory(categoryId) {
+  currentCategoryId = categoryId;
+  const cat = categories.find((c) => c.id === categoryId);
+  if (!cat) return;
+
+  populateNominationSelect(cat);
+  const select = document.getElementById("nomination-select");
+  currentNominationId =
+    select.value || (cat.nominations[0] && cat.nominations[0].id);
+
+  if (currentNominationId) {
+    renderNomination(categoryId, currentNominationId);
+  }
+}
+
+// =====================================
+// INICIO
 // =====================================
 
 window.addEventListener("DOMContentLoaded", () => {
-  loadVotes();
   renderCategoriesList();
 
   const resetBtn = document.getElementById("reset-all");
@@ -348,8 +357,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   if (categories.length > 0) {
     selectCategory(categories[0].id);
-  } else {
-    // si no hay categorías, igual dibujamos el resumen vacío
-    renderSummaryPanel();
   }
+
+  subscribeToVotes(); // 🔥 escuchar cambios en tiempo real
 });
