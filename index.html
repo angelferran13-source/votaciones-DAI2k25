@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Votaciones en Vivo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Votaciones en Vivo</h1>
+    <p>40 participantes · 10 categorías · 20 nominaciones</p>
+  </header>
+
+  <main>
+    <!-- PANEL IZQUIERDO: CATEGORÍAS -->
+    <aside id="categories">
+      <h2>Categorías</h2>
+      <div id="category-list"></div>
+      <button id="reset-all" class="danger">Reiniciar TODOS los votos</button>
+    </aside>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <section id="content">
+      <h2 id="category-title">Selecciona una categoría</h2>
+
+      <!-- Selector de nominaciones de la categoría -->
+      <div id="nomination-select-wrapper" class="nomination-select-wrapper">
+        <label for="nomination-select">Nominación:</label>
+        <select id="nomination-select"></select>
+      </div>
+
+      <!-- Aquí se muestran los participantes de la nominación seleccionada -->
+      <div id="nominees-container"></div>
+
+      <!-- PANEL DE RESUMEN GENERAL -->
+      <hr class="summary-separator">
+      <h3 id="summary-title">Resumen general (líder por nominación)</h3>
+      <div id="summary-panel" class="summary-panel"></div>
+    </section>
+  </main>
+
+  <footer>
+    <small>
+      Sistema de votación local con conteo por nominación y panel de resumen gráfico.
+    </small>
+  </footer>
+
+  <!-- Scripts de la aplicación -->
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
